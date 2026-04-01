@@ -96,10 +96,11 @@ class RoPE(nn.Module):
         super().__init__()
         assert d_k % 2 == 0
         self.d_k = d_k
+        self.device = device
         
         # 构建逆频率
         # TODO(复习): 试着先自己写，再和这一行对照
-        inv_freqs = 1.0 / (theta** (torch.arange(0, d_k, 2, dtype=torch.float32, device = device) / self.d_k))
+        inv_freqs = theta ** (- torch.arange(0, d_k, 2, dtype=torch.float32) / self.d_k)
         
         # 构建频率和位置
         pos = torch.arange(0, max_seq_len, dtype=torch.float32) # (max_seq_len)
@@ -107,7 +108,9 @@ class RoPE(nn.Module):
         # 构建sin和cos
         # 我们需要的sin和cos的形状是什么?
         # 需要能和 x 进行计算, 那么他们都是2d向量
-        freqs = einsum(pos, inv_freqs, 'seq, d -> seq d')
+        freqs = pos.unsqueeze(1) @ inv_freqs.unsqueeze(0)
+        # 轮椅写法
+        # freqs = einsum(pos, inv_freqs, 's, d -> s d')
 
         cos = torch.cos(freqs) # seq d/2
         sin = torch.sin(freqs) # seq d/2
@@ -119,16 +122,23 @@ class RoPE(nn.Module):
     def forward(self, x: torch.Tensor, token_positions: torch.Tensor) -> torch.Tensor:
         # import pdb; pdb.set_trace()
         # 分组
-        x_even = x[..., ::2]
+        x_even = x[..., 0::2] # b, s, d/2
         x_odd = x[..., 1::2]
 
         # 获取 sin/cos
-        cos = self.cos[token_positions]
+        cos = self.cos[token_positions] # s, d/2
         sin = self.sin[token_positions]
         
         # 进行旋转
         # TODO(复习-挖空): 补全旋转公式，并按偶/奇位置写回输出
-        raise NotImplementedError("TODO: 完成RoPE.forward")
+        y_even = x_even * cos - x_odd * sin
+        y_odd = x_even * sin + x_odd * cos
+        
+        y = torch.zeros(x.shape, device=self.device, dtype=torch.float32)
+        y[..., 0::2] = y_even
+        y[..., 1::2] = y_odd
+        
+        return y
     
 def softmax(in_features: torch.Tensor, dim: int):
     # TODO(复习-挖空): 写出数值稳定版softmax
