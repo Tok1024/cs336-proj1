@@ -141,13 +141,26 @@ class RoPE(nn.Module):
         return y
     
 def softmax(in_features: torch.Tensor, dim: int):
-    # TODO(复习-挖空): 写出数值稳定版softmax
-    raise NotImplementedError("TODO: 完成softmax")
+    # 写出数值稳定版softmax
+    mx = in_features.max(dim=dim, keepdim=True).values
+    exp = torch.exp(in_features - mx)
+    return exp / exp.sum(dim=dim, keepdim=True)
+    
 
 def scaled_dot_product_attention(query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, mask=None) -> torch.Tensor:
     # import pdb; pdb.set_trace()
     # TODO(复习-挖空): 补全缩放点积注意力
-    raise NotImplementedError("TODO: 完成scaled_dot_product_attention")
+    _, _, seq_q, d_k = query.shape # b, h, s, d
+    _, _, seq_k, _ = key.shape # b, h, s, d
+
+    pre_sm_attn = query @ key.transpose(-1, -2) / math.sqrt(d_k)
+
+    if mask is not None:
+        pre_sm_attn = pre_sm_attn.masked_fill(mask == False, float('-inf'))
+    
+    attn = softmax(pre_sm_attn, dim=-1)
+    
+    return attn @ value
 
 class MultiHeadSelfAttention(nn.Module):
     def __init__(self, d_model, num_heads, rope=None):
