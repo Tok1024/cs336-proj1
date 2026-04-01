@@ -13,7 +13,8 @@ class Linear(nn.Module):
     def __init__(self, in_features, out_features, device=None, dtype=None):
         # 初始化权重
         super().__init__()
-        self.weight = nn.Parameter(torch.empty(out_features, in_features))
+        # 权重 W 存储为原矩阵(dout, din)，而非转置. 使用时右乘x，如 W @ x
+        self.weight = nn.Parameter(torch.empty(out_features, in_features, device=device, dtype=dtype)) 
         self.init_param()
         
         
@@ -29,15 +30,14 @@ class Linear(nn.Module):
         # pytorch中必须把向量视为行向量
         # return x @ self.weight.T
         # 但是对于einsum就无所谓
-        # TODO(复习-挖空): 补全线性层的einsum维度映射
-        # return einsum(self.weight, x, '...')
-        raise NotImplementedError("TODO: 完成Linear.forward")
+        # (复习-挖空): 补全线性层的einsum维度映射
+        return einsum(self.weight, x, 'o i, b s i -> b s o')
     
 
 class Embedding(nn.Module):
     def __init__(self, num_embeddings, embedding_dim, device=None, dtype=None):
         super().__init__()
-        self.embeddings = nn.Parameter(torch.empty(num_embeddings, embedding_dim))
+        self.embeddings = nn.Parameter(torch.empty(num_embeddings, embedding_dim, device=device, dtype=dtype))
         self.d_model = embedding_dim
         self.init_embeddings()
         
@@ -47,28 +47,30 @@ class Embedding(nn.Module):
         nn.init.trunc_normal_(self.embeddings, mean=mean, std=std, a=-3, b=3)
         
     def forward(self, token_ids: torch.Tensor) -> torch.Tensor:
-        # TODO(复习-挖空): 根据token_ids做embedding查表
-        raise NotImplementedError("TODO: 完成Embedding.forward")
+        # (复习-挖空): 根据token_ids做embedding查表
+        return self.embeddings[token_ids]
     
 class RMSNorm(nn.Module):
     def __init__(self, d_model: int, eps: float = 1e-5, device=None, dtype=None):
         super().__init__()
         self.eps = eps
         self.d_model = d_model
-        self.gain = nn.Parameter(torch.randn(d_model) / math.sqrt(d_model))
+        self.gain = nn.Parameter(torch.randn(d_model, device=device, dtype=dtype) / math.sqrt(d_model))
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         
         in_dtype = x.dtype
-        x = x.to(torch.float32)
+        x = x.float()
 
         # TODO(复习-挖空): 补全RMSNorm核心计算（平方、归一化因子、缩放）
         # 要求: 结果转回输入dtype
-        raise NotImplementedError("TODO: 完成RMSNorm.forward")
+        rms = torch.sqrt(((x**2).mean(dim=-1, keepdim=True) + self.eps))
+        out = x * self.gain / rms
+        return out.to(in_dtype)
     
 def SiLU(x: torch.Tensor):
     # TODO(复习-挖空): 写出SiLU定义
-    raise NotImplementedError("TODO: 完成SiLU")
+    return torch.sigmoid(x) * x
     
 class SwiGLU(nn.Module):
     def __init__(self, d_model, dff=None):
@@ -85,8 +87,10 @@ class SwiGLU(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # TODO(复习-挖空): 补全SwiGLU前向
         # 提示: 两个分支 + 门控 + 输出投影
-        raise NotImplementedError("TODO: 完成SwiGLU.forward")
-
+        gated = SiLU(self.w1(x))
+        projected = self.w3(x)
+        return self.w2(gated * projected)
+    
 class RoPE(nn.Module):
     def __init__(self, theta: float, d_k: int, max_seq_len: int, device=None):
         super().__init__()
@@ -95,7 +99,7 @@ class RoPE(nn.Module):
         
         # 构建逆频率
         # TODO(复习): 试着先自己写，再和这一行对照
-        inv_freqs = 1.0 / (theta** (torch.arange(0, d_k, 2, dtype=torch.float32) / self.d_k))
+        inv_freqs = 1.0 / (theta** (torch.arange(0, d_k, 2, dtype=torch.float32, device = device) / self.d_k))
         
         # 构建频率和位置
         pos = torch.arange(0, max_seq_len, dtype=torch.float32) # (max_seq_len)
