@@ -481,7 +481,12 @@ def run_get_batch(
         is the sampled input sequences, and the second tuple item is the corresponding
         language modeling labels.
     """
-    raise NotImplementedError
+    # 任务拆解:
+    # 1) 在[0, len(dataset)-context_length)中随机采样batch_size个起点
+    # 2) 构造x: dataset[start : start+context_length]
+    # 3) 构造y: dataset[start+1 : start+1+context_length]
+    # 4) 转成torch.long并移动到device
+    raise NotImplementedError("TODO: 完成run_get_batch")
 
 
 def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, " ..."]:
@@ -515,7 +520,11 @@ def run_cross_entropy(
     Returns:
         Float[Tensor, ""]: The average cross-entropy loss across examples.
     """
-    raise NotImplementedError
+    # 任务拆解:
+    # 1) 对inputs做log_softmax
+    # 2) 按targets抽取每个样本正确类别的log-prob
+    # 3) 对负log-prob求均值
+    raise NotImplementedError("TODO: 完成run_cross_entropy")
 
 
 def run_gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm: float) -> None:
@@ -527,14 +536,40 @@ def run_gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm:
 
     The gradients of the parameters (parameter.grad) should be modified in-place.
     """
-    raise NotImplementedError
+    # 任务拆解:
+    # 1) 收集所有非None梯度
+    # 2) 计算全局L2 norm
+    # 3) 若norm > max_l2_norm，按同一比例缩放每个梯度
+    raise NotImplementedError("TODO: 完成run_gradient_clipping")
 
 
 def get_adamw_cls() -> Any:
     """
     Returns a torch.optim.Optimizer that implements AdamW.
     """
-    raise NotImplementedError
+    class AdamW(torch.optim.Optimizer):
+        """AdamW骨架，关键更新逻辑留给你补全。"""
+
+        def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0.01):
+            defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+            super().__init__(params, defaults)
+
+        @torch.no_grad()
+        def step(self, closure=None):
+            loss = None
+            if closure is not None:
+                with torch.enable_grad():
+                    loss = closure()
+
+            # 任务拆解:
+            # 1) 遍历param groups和参数，跳过grad为None
+            # 2) 初始化/读取state: step, m, v
+            # 3) 更新一阶/二阶动量
+            # 4) 计算bias correction
+            # 5) 先做decoupled weight decay，再做adam更新
+            raise NotImplementedError("TODO: 完成AdamW.step")
+
+    return AdamW
 
 
 def run_get_lr_cosine_schedule(
@@ -562,7 +597,11 @@ def run_get_lr_cosine_schedule(
     Returns:
         Learning rate at the given iteration under the specified schedule.
     """
-    raise NotImplementedError
+    # 任务拆解:
+    # 1) it < warmup_iters: 线性warmup到max_learning_rate
+    # 2) warmup后到cosine_cycle_iters: cosine从max到min
+    # 3) it > cosine_cycle_iters: 固定min_learning_rate
+    raise NotImplementedError("TODO: 完成run_get_lr_cosine_schedule")
 
 
 def run_save_checkpoint(
@@ -581,7 +620,10 @@ def run_save_checkpoint(
             we've completed.
         out (str | os.PathLike | BinaryIO | IO[bytes]): Path or file-like object to serialize the model, optimizer, and iteration to.
     """
-    raise NotImplementedError
+    # 任务拆解:
+    # 1) 组装checkpoint字典: model_state_dict / optimizer_state_dict / iteration
+    # 2) 使用torch.save写入out
+    raise NotImplementedError("TODO: 完成run_save_checkpoint")
 
 
 def run_load_checkpoint(
@@ -602,7 +644,11 @@ def run_load_checkpoint(
     Returns:
         int: the previously-serialized number of iterations.
     """
-    raise NotImplementedError
+    # 任务拆解:
+    # 1) 使用torch.load读取checkpoint
+    # 2) model.load_state_dict与optimizer.load_state_dict
+    # 3) 返回checkpoint中的iteration
+    raise NotImplementedError("TODO: 完成run_load_checkpoint")
 
 
 def get_tokenizer(
@@ -655,4 +701,4 @@ def run_train_bpe(
                 representing that <token1> was merged with <token2>.
                 Merges are ordered by order of creation.
     """
-    return train_bpe(input_path, vocab_size, special_tokens)
+    return train_bpe(str(input_path), vocab_size, special_tokens)
