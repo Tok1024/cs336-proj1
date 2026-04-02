@@ -62,14 +62,14 @@ class RMSNorm(nn.Module):
         in_dtype = x.dtype
         x = x.float()
 
-        # TODO(复习-挖空): 补全RMSNorm核心计算（平方、归一化因子、缩放）
+        # 补全RMSNorm核心计算（平方、归一化因子、缩放）
         # 要求: 结果转回输入dtype
         rms = torch.sqrt(((x**2).mean(dim=-1, keepdim=True) + self.eps))
         out = x * self.gain / rms
         return out.to(in_dtype)
     
 def SiLU(x: torch.Tensor):
-    # TODO(复习-挖空): 写出SiLU定义
+    # 写出SiLU定义
     return torch.sigmoid(x) * x
     
 class SwiGLU(nn.Module):
@@ -85,7 +85,7 @@ class SwiGLU(nn.Module):
 
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # TODO(复习-挖空): 补全SwiGLU前向
+        # 补全SwiGLU前向
         # 提示: 两个分支 + 门控 + 输出投影
         gated = SiLU(self.w1(x))
         projected = self.w3(x)
@@ -99,7 +99,7 @@ class RoPE(nn.Module):
         self.device = device
         
         # 构建逆频率
-        # TODO(复习): 试着先自己写，再和这一行对照
+        # 试着先自己写，再和这一行对照
         inv_freqs = theta ** (- torch.arange(0, d_k, 2, dtype=torch.float32) / self.d_k)
         
         # 构建频率和位置
@@ -175,7 +175,7 @@ class MultiHeadSelfAttention(nn.Module):
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # 流程总览: x -> QKV投影 -> 分头 -> (可选RoPE) -> 因果注意力 -> 合并头 -> Wo
-        # TODO(复习-挖空): 按上面的流程补完整个前向
+        # (复习-挖空): 按上面的流程补完整个前向
         b, s, d = x.shape
         # 1.投影
         q, k, v = self.Wq(x), self.Wk(x), self.Wv(x)
@@ -211,8 +211,9 @@ class TransformerBlock(nn.Module):
         self.ln2 = RMSNorm(d_model=d_model)
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # TODO(复习-挖空): 按Pre-Norm残差结构补全
-        raise NotImplementedError("TODO: 完成TransformerBlock.forward")
+        x = self.attn(self.ln1(x)) + x
+        x = self.ffn(self.ln2(x)) + x
+        return x
     
 class TransformerLM(nn.Module):
     def __init__(self, d_model:int, num_heads:int, d_ff:int, vocab_size:int, context_length:int, num_layers:int, rope_theta:float):
@@ -226,4 +227,8 @@ class TransformerLM(nn.Module):
         # import pdb; pdb.set_trace()
         # TODO(复习-挖空): 按主流程补全语言模型前向
         # 注意: forward输出logits，不在这里做softmax
-        raise NotImplementedError("TODO: 完成TransformerLM.forward")
+        x = self.embd(input_ids)
+        for layer in self.layers:
+            x = layer(x) # (b, s, d)
+        logits = self.output_embd(self.ln(x))
+        return logits
