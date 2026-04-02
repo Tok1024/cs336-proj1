@@ -8,6 +8,15 @@ import torch
 from cs336_basics.model import TransformerLM
 
 
+# 对齐实验要求的任务地图（先过单测，再接入train主循环）:
+# A1 -> tests/test_data.py::test_get_batch
+# A2 -> tests/test_nn_utils.py::test_cross_entropy
+# A3 -> tests/test_nn_utils.py::test_gradient_clipping
+# A4 -> tests/test_optimizer.py::test_get_lr_cosine_schedule
+# A5 -> tests/test_optimizer.py::test_adamw
+# A6 -> tests/test_serialization.py::test_checkpointing
+# A7 -> 训练主循环集成（本文件train/evaluate）
+
 @dataclass
 class TrainConfig:
     train_tokens_path: str
@@ -39,27 +48,41 @@ def set_seed(seed: int) -> None:
 
 
 def load_token_array(path: str) -> np.ndarray:
-    # TODO: 任务1
-    # 按你的数据格式读取为1D token id数组
-    # 可以先支持.npy，再扩展到.bin等格式
+    # TODO(A7-准备): 按你的数据格式读取为1D token id数组
+    # 建议先支持.npy；若你有.bin可再扩展。
+    # 要求: 返回dtype可用于torch.long，且shape为(N,)。
     raise NotImplementedError("TODO: 完成load_token_array")
 
 
 def get_batch(dataset: np.ndarray, batch_size: int, context_length: int, device: str) -> tuple[torch.Tensor, torch.Tensor]:
-    # TODO: 任务2
-    # 复用你在adapters里的run_get_batch逻辑
+    # TODO(A1): 与tests/test_data.py对齐
+    # 1) 起点均匀采样于[0, len(dataset)-context_length)
+    # 2) x.shape == y.shape == (batch_size, context_length)
+    # 3) y始终是x右移一位（逐元素满足 y = x + 1 在该测试构造下）
+    # 4) 返回torch.long并放到device
     raise NotImplementedError("TODO: 完成get_batch")
 
 
 def cross_entropy_loss(logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-    # TODO: 任务3
-    # 复用你在adapters里的run_cross_entropy逻辑
-    raise NotImplementedError("TODO: 完成cross_entropy_loss")
-
+    # TODO(A2): 与tests/test_nn_utils.py::test_cross_entropy对齐
+    # 输入形状: [B, V] 与 [B]；输出标量平均loss。
+    # import pdb; pdb.set_trace()
+    # 1. 普通写法，转换到概率 prob 空间，指数容易溢出！
+    # logits = logits - logits.max(dim=-1, keepdim=True).values
+    # exp = torch.exp(logits)
+    # probs = exp[torch.arange(logits.shape[0]), targets] / exp.sum(dim=-1) # 这里我们的targets需要给最后一位取元素
+    # neg_log = - torch.log(probs)
+    # nlh = neg_log.mean()
+    # 2. 聪明的写法，把log和指数合并一下, 在logits空间计算
+    logits = logits - logits.max(dim=-1, keepdim=True).values
+    correct_logits = logits[torch.arange(logits.shape[0]), targets] # (B)
+    log_sum = torch.log(torch.exp(logits).sum(dim=-1)) # (B)
+    nlh = -(correct_logits - log_sum).mean()
+    return nlh
 
 def clip_gradients(parameters, max_l2_norm: float) -> None:
-    # TODO: 任务4
-    # 复用你在adapters里的run_gradient_clipping逻辑
+    # TODO(A3): 与tests/test_nn_utils.py::test_gradient_clipping对齐
+    # 行为应与torch.nn.utils.clip_grad_norm_一致（忽略grad=None参数）。
     raise NotImplementedError("TODO: 完成clip_gradients")
 
 
@@ -70,8 +93,10 @@ def get_lr_cosine_schedule(
     warmup_iters: int,
     cosine_cycle_iters: int,
 ) -> float:
-    # TODO: 任务5
-    # 复用你在adapters里的run_get_lr_cosine_schedule逻辑
+    # TODO(A4): 与tests/test_optimizer.py::test_get_lr_cosine_schedule对齐
+    # 1) warmup段: 线性从0升到max_learning_rate
+    # 2) 余弦段: 从max衰减到min
+    # 3) 余弦结束后: 固定min_learning_rate
     raise NotImplementedError("TODO: 完成get_lr_cosine_schedule")
 
 
@@ -81,8 +106,8 @@ def save_checkpoint(
     iteration: int,
     out_path: str,
 ) -> None:
-    # TODO: 任务6
-    # 复用你在adapters里的run_save_checkpoint逻辑
+    # TODO(A6-保存): 与tests/test_serialization.py::test_checkpointing对齐
+    # 保存model/optimizer/iteration三项状态。
     raise NotImplementedError("TODO: 完成save_checkpoint")
 
 
@@ -91,8 +116,8 @@ def load_checkpoint(
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
 ) -> int:
-    # TODO: 任务7
-    # 复用你在adapters里的run_load_checkpoint逻辑
+    # TODO(A6-加载): 与tests/test_serialization.py::test_checkpointing对齐
+    # 正确恢复model与optimizer状态，并返回iteration。
     raise NotImplementedError("TODO: 完成load_checkpoint")
 
 
@@ -136,8 +161,8 @@ def train(cfg: TrainConfig) -> None:
     # 2) 模型与优化器
     model = build_model(cfg)
 
-    # TODO: 任务8
-    # 用你自己的AdamW类替换这里
+    # TODO(A5): 用你在adapters里实现的AdamW替换这里
+    # 要求与tests/test_optimizer.py::test_adamw行为一致。
     optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.max_learning_rate)
 
     # 3) 训练主循环

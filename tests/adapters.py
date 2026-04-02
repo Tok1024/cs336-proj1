@@ -10,6 +10,7 @@ from jaxtyping import Bool, Float, Int
 from torch import Tensor
 from cs336_basics.tokenizer import Tokenizer, train_bpe
 from cs336_basics.model import Linear, Embedding, RMSNorm, SiLU, SwiGLU, RoPE, RoPE_Qwen, softmax, scaled_dot_product_attention, MultiHeadSelfAttention, TransformerBlock, TransformerLM
+from cs336_basics.train import cross_entropy_loss
 def run_linear(
     d_in: int,
     d_out: int,
@@ -524,7 +525,7 @@ def run_cross_entropy(
     # 1) 对inputs做log_softmax
     # 2) 按targets抽取每个样本正确类别的log-prob
     # 3) 对负log-prob求均值
-    raise NotImplementedError("TODO: 完成run_cross_entropy")
+    return cross_entropy_loss(logits=inputs, targets=targets)
 
 
 def run_gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm: float) -> None:
