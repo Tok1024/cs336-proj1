@@ -140,6 +140,35 @@ class RoPE(nn.Module):
         
         return y
     
+def rotate_half(x: torch.Tensor):
+    d_k = x.shape[-1]
+    x1 = x[..., : d_k // 2] 
+    x2 = x[..., d_k // 2 : ]
+    return torch.cat([-x2, x1], dim=-1)
+
+class RoPE_Qwen(nn.Module):
+    def __init__(self, theta: float, d_k: int, max_seq_len: int, device=None) -> None:
+        super().__init__()
+        self.device = device
+        inv_freqs = theta ** (- torch.arange(0, d_k, 2, dtype=torch.float32, device=device) / d_k)
+        pos = torch.arange(max_seq_len, dtype=torch.float32, device=device)
+        freqs = pos.unsqueeze(1) @ inv_freqs.unsqueeze(0)
+        cos = torch.cos(freqs)
+        cos = torch.cat([cos, cos], dim=-1) # s, d_k
+        sin = torch.sin(freqs)
+        sin = torch.cat([sin, sin], dim=-1)
+        self.cos: torch.Tensor
+        self.sin: torch.Tensor
+        self.register_buffer('cos', cos, persistent=False) #buffer只影响向量和模型的device保持一致
+        self.register_buffer('sin', sin, persistent=False)
+    
+    def forward(self, x: torch.Tensor, token_positions: torch.Tensor) -> torch.Tensor:
+        cos = self.cos[token_positions].to(dtype=x.dtype, device=x.device)  # (S, d_k)
+        sin = self.sin[token_positions].to(dtype=x.dtype, device=x.device)
+        return x * self.cos + rotate_half(x) * self.sin
+    
+    
+    
 def softmax(in_features: torch.Tensor, dim: int):
     # 写出数值稳定版softmax
     mx = in_features.max(dim=dim, keepdim=True).values
@@ -150,8 +179,7 @@ def softmax(in_features: torch.Tensor, dim: int):
 def scaled_dot_product_attention(query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, mask=None) -> torch.Tensor:
     # import pdb; pdb.set_trace()
     # 补全缩放点积注意力
-    _, _, seq_q, d_k = query.shape # b, h, s, d
-    _, _, seq_k, _ = key.shape # b, h, s, d
+    d_k = query.shape[-1] # b, h, s, d
 
     pre_sm_attn = query @ key.transpose(-1, -2) / math.sqrt(d_k)
 
@@ -202,9 +230,11 @@ class MultiHeadSelfAttention(nn.Module):
         
     
 class TransformerBlock(nn.Module):
-    def __init__(self, d_model:int, num_heads:int, d_ff:int, theta=10000.0, max_seq_len=1024):
+    def __init__(self, d_model:int, num_heads:int, d_ff:int, theta=10000.0, max_seq_len=1024, rope=None):
         super().__init__()
-        self.rope = RoPE(theta, d_model//num_heads, max_seq_len)
+        if not rope:
+            rope = RoPE_Qwen(theta, d_model//num_heads, max_seq_len)
+        self.rope = rope
         self.attn = MultiHeadSelfAttention(d_model, num_heads, self.rope)
         self.ffn = SwiGLU(d_model, d_ff)
         self.ln1 = RMSNorm(d_model=d_model)
@@ -218,14 +248,15 @@ class TransformerBlock(nn.Module):
 class TransformerLM(nn.Module):
     def __init__(self, d_model:int, num_heads:int, d_ff:int, vocab_size:int, context_length:int, num_layers:int, rope_theta:float):
         super().__init__()
+        self.rope = RoPE(rope_theta, d_model // num_heads, context_length) # 每个block共用一个rope，节省计算量
         self.embd = Embedding(num_embeddings=vocab_size, embedding_dim=d_model)
-        self.layers = nn.ModuleList([TransformerBlock(d_model, num_heads, d_ff, theta=rope_theta, max_seq_len=context_length) for i in range(num_layers)])
+        self.layers = nn.ModuleList([TransformerBlock(d_model, num_heads, d_ff, theta=rope_theta, max_seq_len=context_length, rope = self.rope) for i in range(num_layers)])
         self.ln = RMSNorm(d_model=d_model)
         self.output_embd = Linear(d_model, vocab_size)
         
     def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
         # import pdb; pdb.set_trace()
-        # TODO(复习-挖空): 按主流程补全语言模型前向
+        # 按主流程补全语言模型前向
         # 注意: forward输出logits，不在这里做softmax
         x = self.embd(input_ids)
         for layer in self.layers:
