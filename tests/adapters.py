@@ -146,6 +146,7 @@ def run_multihead_self_attention(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
+    # import pdb; pdb.set_trace()
     mhst = MultiHeadSelfAttention(d_model, num_heads)
     state_dict = {'Wq.weight':q_proj_weight, 'Wk.weight': k_proj_weight, 'Wv.weight': v_proj_weight, 'Wo.weight': o_proj_weight}
     mhst.load_state_dict(state_dict)
@@ -190,7 +191,7 @@ def run_multihead_self_attention_with_rope(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    rope = RoPE(theta, d_model, max_seq_len)
+    rope = RoPE(theta, d_model // num_heads, max_seq_len)
     mhst = MultiHeadSelfAttention(d_model, num_heads, rope)
     state_dict = {'Wq.weight':q_proj_weight, 'Wk.weight': k_proj_weight, 'Wv.weight': v_proj_weight, 'Wo.weight': o_proj_weight}
     mhst.load_state_dict(state_dict)

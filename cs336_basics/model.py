@@ -130,7 +130,7 @@ class RoPE(nn.Module):
         sin = self.sin[token_positions]
         
         # 进行旋转
-        # TODO(复习-挖空): 补全旋转公式，并按偶/奇位置写回输出
+        # 补全旋转公式，并按偶/奇位置写回输出
         y_even = x_even * cos - x_odd * sin
         y_odd = x_even * sin + x_odd * cos
         
@@ -149,7 +149,7 @@ def softmax(in_features: torch.Tensor, dim: int):
 
 def scaled_dot_product_attention(query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, mask=None) -> torch.Tensor:
     # import pdb; pdb.set_trace()
-    # TODO(复习-挖空): 补全缩放点积注意力
+    # 补全缩放点积注意力
     _, _, seq_q, d_k = query.shape # b, h, s, d
     _, _, seq_k, _ = key.shape # b, h, s, d
 
@@ -174,12 +174,32 @@ class MultiHeadSelfAttention(nn.Module):
         self.rope = rope
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        seq_len = x.shape[1]
-        token_positions = torch.arange(seq_len, device=x.device)
-
         # 流程总览: x -> QKV投影 -> 分头 -> (可选RoPE) -> 因果注意力 -> 合并头 -> Wo
         # TODO(复习-挖空): 按上面的流程补完整个前向
-        raise NotImplementedError("TODO: 完成MultiHeadSelfAttention.forward")
+        b, s, d = x.shape
+        # 1.投影
+        q, k, v = self.Wq(x), self.Wk(x), self.Wv(x)
+        
+        # 2.分头行动
+        # import pdb; pdb.set_trace()
+        q = q.reshape(b, s, self.num_heads, d // self.num_heads).transpose(1, 2)
+        k = k.reshape(b, s, self.num_heads, d // self.num_heads).transpose(1, 2)
+        v = v.reshape(b, s, self.num_heads, d // self.num_heads).transpose(1, 2)
+        
+        # 3. rope
+        if self.rope:
+            token_positions = torch.arange(0, s, device=x.device)
+            q = self.rope(q, token_positions)
+            k = self.rope(k, token_positions)
+        
+        # 4. causual attention
+        mask = torch.tril(torch.ones(s, s, dtype = torch.bool))
+        out = scaled_dot_product_attention(q, k, v, mask)
+        
+        # 5. 合并再投影
+        out = self.Wo(out.transpose(1, 2).reshape(b, s, d))
+        return out
+        
     
 class TransformerBlock(nn.Module):
     def __init__(self, d_model:int, num_heads:int, d_ff:int, theta=10000.0, max_seq_len=1024):
