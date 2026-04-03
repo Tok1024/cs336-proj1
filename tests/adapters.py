@@ -540,9 +540,19 @@ def run_gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm:
     """
     # 任务拆解:
     # 1) 收集所有非None梯度
+    grads = []
+    for param in parameters:
+        if param.grad is None:
+            continue
+        grads.append(param.grad)
+    
     # 2) 计算全局L2 norm
+    l2_norm = math.sqrt(sum((g.data**2).sum() for g in grads))
+    
     # 3) 若norm > max_l2_norm，按同一比例缩放每个梯度
-    raise NotImplementedError("TODO: 完成run_gradient_clipping")
+    if l2_norm > max_l2_norm:
+        for g in grads:
+            g.data = g.data * max_l2_norm / (l2_norm + 1e-6)
 
 
 def get_adamw_cls() -> Any:
