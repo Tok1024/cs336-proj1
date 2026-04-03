@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import math
 import os
-from collections.abc import Iterable
-from typing import IO, Any, BinaryIO
+from collections.abc import Callable, Iterable
+from typing import IO, Any, BinaryIO, Optional
 
 import numpy.typing as npt
 import torch
@@ -549,27 +550,51 @@ def get_adamw_cls() -> Any:
     Returns a torch.optim.Optimizer that implements AdamW.
     """
     class AdamW(torch.optim.Optimizer):
-        """AdamW骨架，关键更新逻辑留给你补全。"""
-
-        def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=0.01):
-            defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
+        def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), weight_decay=1e-2, eps=1e-8):
+            if lr < 0:
+                raise ValueError(f"Invalid learning rate: {lr}")
+            defaults = {"lr": lr, "beta1": betas[0], "beta2": betas[1], "weight_decay": weight_decay, "eps": eps}
             super().__init__(params, defaults)
 
-        @torch.no_grad()
-        def step(self, closure=None):
-            loss = None
-            if closure is not None:
-                with torch.enable_grad():
-                    loss = closure()
-
-            # 任务拆解:
-            # 1) 遍历param groups和参数，跳过grad为None
-            # 2) 初始化/读取state: step, m, v
-            # 3) 更新一阶/二阶动量
-            # 4) 计算bias correction
-            # 5) 先做decoupled weight decay，再做adam更新
-            raise NotImplementedError("TODO: 完成AdamW.step")
-
+        def step(self, closure: Optional[Callable] = None):
+            loss = None if closure is None else closure()
+            
+            for group in self.param_groups: # 这个 param_groups 是参数组，代表模型不同模块的参数可以有不同的学习率
+                lr = group["lr"]  # Get the learning rate.
+                beta1 = group["beta1"] # 一阶动量平滑系数
+                beta2 = group["beta2"] # 二阶动量平滑系数
+                lamd = group["weight_decay"] # weight decay
+                epsilon = group["eps"] # 分母
+                
+                
+                for p in group["params"]:
+                    if p.grad is None:
+                        continue
+                    
+                    # 1. 取state
+                    state = self.state[p]  # state 是一个map，从参数param映射到字典
+                    t = state.get("t", 1)  # Get iteration number from the state, or initial value.
+                    m = state.get("m", torch.zeros_like(p))
+                    v = state.get("v", torch.zeros_like(p))
+                    grad = p.grad.data  # Get the gradient of loss with respect to p.
+                    
+                    # 2. 更新动量
+                    m = beta1 * m + (1 - beta1) * grad
+                    v = beta2 * v + (1 - beta2) * grad**2
+                    
+                    # 3. 更新参数
+                    alpha_t = lr * math.sqrt(1 - beta2**t) / (1 - beta1**t)
+                    p.data -= alpha_t * m / (torch.sqrt(v) + epsilon)
+                    
+                    # 4. weight decay(正则化)
+                    p.data -= lr * lamd * p.data
+                    
+                    # 5. 更新状态
+                    state["t"] = t + 1
+                    state["m"] = m
+                    state["v"] = v
+            
+            return loss
     return AdamW
 
 
