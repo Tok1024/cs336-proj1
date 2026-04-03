@@ -11,7 +11,7 @@ from jaxtyping import Bool, Float, Int
 from torch import Tensor
 from cs336_basics.tokenizer import Tokenizer, train_bpe
 from cs336_basics.model import Linear, Embedding, RMSNorm, SiLU, SwiGLU, RoPE, RoPE_Qwen, softmax, scaled_dot_product_attention, MultiHeadSelfAttention, TransformerBlock, TransformerLM
-from cs336_basics.train import cross_entropy_loss
+from cs336_basics.train import cross_entropy_loss, AdamW
 def run_linear(
     d_in: int,
     d_out: int,
@@ -549,52 +549,6 @@ def get_adamw_cls() -> Any:
     """
     Returns a torch.optim.Optimizer that implements AdamW.
     """
-    class AdamW(torch.optim.Optimizer):
-        def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), weight_decay=1e-2, eps=1e-8):
-            if lr < 0:
-                raise ValueError(f"Invalid learning rate: {lr}")
-            defaults = {"lr": lr, "beta1": betas[0], "beta2": betas[1], "weight_decay": weight_decay, "eps": eps}
-            super().__init__(params, defaults)
-
-        def step(self, closure: Optional[Callable] = None):
-            loss = None if closure is None else closure()
-            
-            for group in self.param_groups: # 这个 param_groups 是参数组，代表模型不同模块的参数可以有不同的学习率
-                lr = group["lr"]  # Get the learning rate.
-                beta1 = group["beta1"] # 一阶动量平滑系数
-                beta2 = group["beta2"] # 二阶动量平滑系数
-                lamd = group["weight_decay"] # weight decay
-                epsilon = group["eps"] # 分母
-                
-                
-                for p in group["params"]:
-                    if p.grad is None:
-                        continue
-                    
-                    # 1. 取state
-                    state = self.state[p]  # state 是一个map，从参数param映射到字典
-                    t = state.get("t", 1)  # Get iteration number from the state, or initial value.
-                    m = state.get("m", torch.zeros_like(p))
-                    v = state.get("v", torch.zeros_like(p))
-                    grad = p.grad.data  # Get the gradient of loss with respect to p.
-                    
-                    # 2. 更新动量
-                    m = beta1 * m + (1 - beta1) * grad
-                    v = beta2 * v + (1 - beta2) * grad**2
-                    
-                    # 3. 更新参数
-                    alpha_t = lr * math.sqrt(1 - beta2**t) / (1 - beta1**t)
-                    p.data -= alpha_t * m / (torch.sqrt(v) + epsilon)
-                    
-                    # 4. weight decay(正则化)
-                    p.data -= lr * lamd * p.data
-                    
-                    # 5. 更新状态
-                    state["t"] = t + 1
-                    state["m"] = m
-                    state["v"] = v
-            
-            return loss
     return AdamW
 
 
@@ -625,9 +579,14 @@ def run_get_lr_cosine_schedule(
     """
     # 任务拆解:
     # 1) it < warmup_iters: 线性warmup到max_learning_rate
+    if it < warmup_iters:
+        lr = it / warmup_iters * max_learning_rate
     # 2) warmup后到cosine_cycle_iters: cosine从max到min
+    elif it >= warmup_iters and it <= cosine_cycle_iters:
+        lr = min_learning_rate + 0.5*(1 + math.cos((it - warmup_iters)*math.pi / (cosine_cycle_iters - warmup_iters)))*(max_learning_rate - min_learning_rate)    
     # 3) it > cosine_cycle_iters: 固定min_learning_rate
-    raise NotImplementedError("TODO: 完成run_get_lr_cosine_schedule")
+    else: lr = min_learning_rate
+    return lr
 
 
 def run_save_checkpoint(
