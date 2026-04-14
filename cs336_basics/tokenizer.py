@@ -94,7 +94,7 @@ def process_chunk(start, end, input_file, special_tokens: list[str] | None = Non
         f.seek(start)
         chunk = f.read(end-start).decode("utf-8", errors='ignore')
     #     pre_tokens = re.findall(PAT, chunk)
-        
+
     # # 统计词频
     #     for token in pre_tokens:
     #         token_bytes = token.encode('utf-8')
@@ -103,7 +103,7 @@ def process_chunk(start, end, input_file, special_tokens: list[str] | None = Non
         if special_tokens:
             sorted_tokens = sorted(special_tokens, key=len, reverse=True)
             escaped_tokens = [re.escape(tok) for tok in sorted_tokens]
-            pattern = '(' + "|".join(escaped_tokens) + ')'
+            pattern = '(' + "|".join(escaped_tokens) + ')' # 括号代表保留special token
             parts = re.split(pattern, chunk)
         else:
             parts = [chunk]
@@ -112,21 +112,11 @@ def process_chunk(start, end, input_file, special_tokens: list[str] | None = Non
             if special_tokens and i % 2 == 1:
                 # special token本身不参与BPE统计，避免被学习成子片段
                 continue
-            for match in re.finditer(PAT, part):
+            for match in re.finditer(PAT, part): # 迭代器
                 word_bytes = tuple(match.group(0).encode("utf-8"))
                 chunk_word_counts[word_bytes] += 1
     # 返回词频
     return chunk_word_counts
-    
-def count_token_pair_freq(word_freqs: dict[str, int]):
-    """计算不同token_id pair的出现频率"""
-    byte_pair_freq = defaultdict(int)
-    for word, freq in word_freqs.items():
-        for a, b in zip(word[:-1], word[1:]):
-            # import pdb; pdb.set_trace()
-            byte_pair_freq[(a, b)] += freq
-    return byte_pair_freq
-
 
 def iter_adjacent_pairs(word: tuple[int, ...]) -> Iterator[tuple[int, int]]:
     for a, b in zip(word[:-1], word[1:]):
@@ -230,7 +220,7 @@ def merged_pair_in_word(word: tuple[int,...], pair: tuple[int, int], token_cnt: 
             merged.append(word[i])
             i += 1
     return tuple(merged)
-            
+
 def flatten_vocab(vocab: dict[int, bytes | tuple[int, int]]) -> dict[int, bytes]:
     cache = {}
     
@@ -281,9 +271,10 @@ def train_bpe(input_file: str,
         if tid in token_bytes_cache:
             return token_bytes_cache[tid]
         val = vocab[tid]
-        if isinstance(val, bytes):
+        if isinstance(val, bytes): # 如果是初始的老资历token
             token_bytes_cache[tid] = val
         else:
+            # 如果是token id pair
             left_id, right_id = cast(tuple[int, int], val)
             token_bytes_cache[tid] = get_token_bytes(left_id) + get_token_bytes(right_id)
         return token_bytes_cache[tid]
@@ -349,6 +340,10 @@ def train_bpe(input_file: str,
             word_freqs[new_word] += add_freq
             new_local_pair_count = count_pairs_in_word(new_word)
             for pair, cnt in new_local_pair_count.items():
+                # 懒更新体现之处：
+                # 我们修改全局结构 pair_freq的时候不去同步修改pq
+                # 因为堆不支持随机修改
+                # 而是弹出时检测！
                 pair_freq[pair] += cnt * add_freq
                 pair_to_words[pair].add(new_word)
                 changed_pairs.add(pair)
