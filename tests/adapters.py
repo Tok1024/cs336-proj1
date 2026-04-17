@@ -308,7 +308,6 @@ def run_transformer_block(
     block.load_state_dict(state_dict)
     output = block(in_features)
     return output
-    
 
 
 def run_transformer_lm(
@@ -565,7 +564,7 @@ def run_get_lr_cosine_schedule(
     Returns:
         Learning rate at the given iteration under the specified schedule.
     """
-    get_lr_cosine_schedule(it, max_learning_rate, min_learning_rate, warmup_iters, cosine_cycle_iters)
+    return get_lr_cosine_schedule(it, max_learning_rate, min_learning_rate, warmup_iters, cosine_cycle_iters)
 
 
 def run_save_checkpoint(

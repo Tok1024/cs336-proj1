@@ -235,7 +235,7 @@ class TransformerBlock(nn.Module):
     def __init__(self, d_model:int, num_heads:int, d_ff:int, theta=10000.0, max_seq_len=1024, rope=None):
         super().__init__()
         if not rope:
-            rope = RoPE_Qwen(theta, d_model//num_heads, max_seq_len)
+            rope = RoPE(theta, d_model//num_heads, max_seq_len)
         self.rope = rope
         self.attn = MultiHeadSelfAttention(d_model, num_heads, self.rope)
         self.ffn = SwiGLU(d_model, d_ff)

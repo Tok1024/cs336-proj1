@@ -87,10 +87,11 @@ class AdamW(torch.optim.Optimizer):
         return loss
 
 def load_token_array(path: str) -> np.ndarray:
-    # TODO(A7-准备): 按你的数据格式读取为1D token id数组
     # 建议先支持.npy；若你有.bin可再扩展。
     # 要求: 返回dtype可用于torch.long，且shape为(N,)。
-    raise NotImplementedError("TODO: 完成load_token_array")
+    # return np.load(path, mmap_mode="r")
+    if(path.endswith(".npy")): return np.load(path, mmap_mode="r")
+    elif(path.endswith(".bin")): return np.memmap(path, mode="r")
 
 
 def get_batch(dataset: np.ndarray, batch_size: int, context_length: int, device: str) -> tuple[torch.Tensor, torch.Tensor]:
@@ -108,7 +109,6 @@ def get_batch(dataset: np.ndarray, batch_size: int, context_length: int, device:
     )
     # 4) 返回torch.long并放到device
     return x.to(torch.long).to(device), y.to(torch.long).to(device)
-    
 
 
 def cross_entropy_loss(logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
@@ -121,6 +121,8 @@ def cross_entropy_loss(logits: torch.Tensor, targets: torch.Tensor) -> torch.Ten
     # neg_log = - torch.log(probs)
     # nlh = neg_log.mean()
     # 2. 聪明的写法，把log和指数合并一下, 在logits空间计算
+    # 指数：来自于softmax
+    # log：来自于交叉熵
     logits = logits - logits.max(dim=-1, keepdim=True).values
     correct_logits = logits[torch.arange(logits.shape[0]), targets] # (B)
     log_sum = torch.log(torch.exp(logits).sum(dim=-1)) # (B)
@@ -223,7 +225,20 @@ def build_model(cfg: TrainConfig) -> TransformerLM:
 
 
 def train(cfg: TrainConfig) -> None:
-    
+    set_seed(cfg.seed)
+    iters = cfg.total_iters
+    batch_size = cfg.batch_size
+    model = build_model(cfg)
+    opt = AdamW(model.parameters(), cfg.max_learning_rate)
+    dataset = load_token_array(cfg.train_tokens_path)
+    for it in range(iters):
+        opt.zero_grad() # 首先记得给优化器梯度清零
+        batch, targets = get_batch(dataset, batch_size, cfg.context_length, cfg.device)
+        logits = model(batch)
+        loss = cross_entropy_loss(logits[:, -1, :], targets)
+        loss.backward()
+        clip_gradients(model.parameters(), cfg.max_grad_norm)
+        opt.step()
 
 def parse_args() -> TrainConfig:
     parser = argparse.ArgumentParser(description="Training entry for CS336 assignment")
