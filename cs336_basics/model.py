@@ -1,9 +1,11 @@
+from typing import Optional
+
 import torch
 import torch.nn as nn
 import math
 from einops import einsum, rearrange, reduce
 
-# Transformer快速复习地图:
+# Transformer快速复习:
 # 1) Embedding: token_id -> 向量
 # 2) TransformerBlock: Norm -> Attention/FFN -> 残差
 # 3) 堆叠多个Block后再做Norm + 输出到词表logits
@@ -126,8 +128,8 @@ class RoPE(nn.Module):
         x_odd = x[..., 1::2]
 
         # 获取 sin/cos
-        cos = self.cos[token_positions] # s, d/2
-        sin = self.sin[token_positions]
+        cos = self.cos[token_positions].to(device=x.device, dtype=x.dtype) # s, d/2
+        sin = self.sin[token_positions].to(device=x.device, dtype=x.dtype)
         
         # 进行旋转
         # 补全旋转公式，并按偶/奇位置写回输出
@@ -135,7 +137,7 @@ class RoPE(nn.Module):
         y_even = x_even * cos - x_odd * sin
         y_odd = x_even * sin + x_odd * cos
         
-        y = torch.zeros(x.shape, device=self.device, dtype=torch.float32)
+        y = torch.empty_like(x)
         y[..., 0::2] = y_even
         y[..., 1::2] = y_odd
         
@@ -223,7 +225,7 @@ class MultiHeadSelfAttention(nn.Module):
             k = self.rope(k, token_positions)
         
         # 4. causual attention
-        mask = torch.tril(torch.ones(s, s, dtype = torch.bool))
+        mask = torch.tril(torch.ones(s, s, dtype=torch.bool, device=x.device))
         out = scaled_dot_product_attention(q, k, v, mask)
         
         # 5. 合并再投影
@@ -265,3 +267,26 @@ class TransformerLM(nn.Module):
             x = layer(x) # (b, s, d)
         logits = self.output_embd(self.ln(x))
         return logits
+    
+    def generate(self, input_ids: torch.Tensor, max_new_tokens: int=256, temperature: Optional[float]=None, topp: Optional[float]=None):
+        total_tokens = 0
+        new_token = -1
+        x = input_ids # B, S
+        while total_tokens <= max_new_tokens and new_token != END_TOKEN:
+            # 先forward
+            logits = self(x)
+            # 计算概率
+            probs = softmax(logits[:, -1, :], dim=-1)
+            if temperature:
+                probs = probs / temperature
+            if topp:
+                # 排序，然后找出满足p的token索引
+                sorted_probs, sorted_idx = torch.sort(probs, descending=True)
+                cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
+                idx = torch.where(cumulative_probs >= topp)[0][0]
+                probs = sorted_probs[..., :idx+1]
+            new_token = torch.multinomial(probs, num_samples=1)
+            torch.cat([x, new_token], dim=-1)
+            total_tokens += 1
+        output_ids = x
+        return output_ids

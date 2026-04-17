@@ -264,7 +264,7 @@ def parse_args() -> TrainConfig:
     parser = argparse.ArgumentParser(description="Training entry for CS336 assignment")
     parser.add_argument("--train_tokens_path", type=str, required=True)
     parser.add_argument("--valid_tokens_path", type=str, required=True)
-    parser.add_argument("--vocab_size", type=int, default=10000)
+    parser.add_argument("--vocab_size", type=int, default=50257)
     parser.add_argument("--context_length", type=int, default=256)
     parser.add_argument("--d_model", type=int, default=512)
     parser.add_argument("--num_layers", type=int, default=8)
@@ -283,7 +283,7 @@ def parse_args() -> TrainConfig:
     parser.add_argument("--max_grad_norm", type=float, default=1.0)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", type=str, default="cpu")
-    parser.add_argument("--checkpoint_path", type=str, default="checkpoints/latest.pt")
+    parser.add_argument("--checkpoint_path", type=str, default="/sda1/szl/cs336/checkpoints/latest.pt")
 
     args = parser.parse_args()
     return TrainConfig(**vars(args))
