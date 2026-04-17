@@ -8,6 +8,7 @@ from typing import IO, BinaryIO, Iterable, Optional
 
 import numpy as np
 import torch
+from tqdm import tqdm
 
 from cs336_basics.model import TransformerLM
 
@@ -34,6 +35,7 @@ class TrainConfig:
     seed: int = 42
     device: str = "cpu"
     checkpoint_path: str = "checkpoints/latest.pt"
+    checkpoint_interval: int = 40
 
 def set_seed(seed: int) -> None:
     torch.manual_seed(seed)
@@ -106,7 +108,7 @@ def get_batch(dataset: np.ndarray, batch_size: int, context_length: int, device:
     # 3) y始终是x右移一位（逐元素满足 y = x + 1 在该测试构造下）
     y = torch.stack(
         [torch.tensor(dataset[i+1:i+1+context_length]) for i in starts]
-    )
+    ) #(B, S)
     # 4) 返回torch.long并放到device
     return x.to(torch.long).to(device), y.to(torch.long).to(device)
 
@@ -226,19 +228,37 @@ def build_model(cfg: TrainConfig) -> TransformerLM:
 
 def train(cfg: TrainConfig) -> None:
     set_seed(cfg.seed)
-    iters = cfg.total_iters
-    batch_size = cfg.batch_size
     model = build_model(cfg)
-    opt = AdamW(model.parameters(), cfg.max_learning_rate)
-    dataset = load_token_array(cfg.train_tokens_path)
-    for it in range(iters):
+    opt = AdamW(model.parameters(), lr=cfg.max_learning_rate)
+
+    train_data = load_token_array(cfg.train_tokens_path)
+    eval_data = load_token_array(cfg.valid_tokens_path)
+
+    for it in tqdm(range(cfg.total_iters), desc="training"):
+        # 优化器每次循环初始化
         opt.zero_grad() # 首先记得给优化器梯度清零
-        batch, targets = get_batch(dataset, batch_size, cfg.context_length, cfg.device)
+        # 应用余弦调度
+        lr = get_lr_cosine_schedule(it, cfg.max_learning_rate, cfg.min_learning_rate, cfg.warmup_iters, cfg.cosine_cycle_iters)
+        for group in opt.param_groups:
+            group['lr'] = lr
+        # 取一个小batch
+        batch, targets = get_batch(train_data, cfg.batch_size, cfg.context_length, cfg.device)
+        # 计算序列内每个token对每个token的前向
         logits = model(batch)
-        loss = cross_entropy_loss(logits[:, -1, :], targets)
+        d = logits.shape[-1]
+        # 改形状 logits(B, V), targets(B)
+        logits = logits.reshape(-1, d) # (B, d), 把每个batch不同step的都归为一类, 计算交叉熵
+        targets = targets.reshape(-1)
+        # 计算loss和梯度
+        loss = cross_entropy_loss(logits, targets)
         loss.backward()
         clip_gradients(model.parameters(), cfg.max_grad_norm)
         opt.step()
+        if it % cfg.eval_interval == 0:
+            val_loss = evaluate(model, eval_data, cfg)
+            print(f"it={it} train_loss={loss.item():.4f} val_loss={val_loss:.4f} lr={lr:.6e}")
+        if it % cfg.checkpoint_interval == 0:
+            save_checkpoint(model, opt, it, cfg.checkpoint_path)
 
 def parse_args() -> TrainConfig:
     parser = argparse.ArgumentParser(description="Training entry for CS336 assignment")
@@ -254,6 +274,7 @@ def parse_args() -> TrainConfig:
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--total_iters", type=int, default=2000)
     parser.add_argument("--eval_interval", type=int, default=200)
+    parser.add_argument("--checkpoint_interval", type=int, default=40)
     parser.add_argument("--eval_batches", type=int, default=20)
     parser.add_argument("--max_learning_rate", type=float, default=3e-4)
     parser.add_argument("--min_learning_rate", type=float, default=3e-5)
