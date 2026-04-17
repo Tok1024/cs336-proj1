@@ -2,8 +2,9 @@ import argparse
 from collections.abc import Callable
 from dataclasses import dataclass
 import math
+import os
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import IO, BinaryIO, Iterable, Optional
 
 import numpy as np
 import torch
@@ -111,7 +112,6 @@ def get_batch(dataset: np.ndarray, batch_size: int, context_length: int, device:
 
 
 def cross_entropy_loss(logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-    # TODO(A2): 与tests/test_nn_utils.py::test_cross_entropy对齐
     # 输入形状: [B, V] 与 [B]；输出标量平均loss。
     # import pdb; pdb.set_trace()
     # 1. 普通写法，转换到概率 prob 空间，指数容易溢出！
@@ -168,21 +168,27 @@ def save_checkpoint(
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
     iteration: int,
-    out_path: str,
+    out_path: str | os.PathLike | BinaryIO | IO[bytes],
 ) -> None:
-    # TODO(A6-保存): 与tests/test_serialization.py::test_checkpointing对齐
     # 保存model/optimizer/iteration三项状态。
-    raise NotImplementedError("TODO: 完成save_checkpoint")
+    checkpoint = {
+        'model_state': model.state_dict(),
+        'optimizer_state': optimizer.state_dict(),
+        'iteration': iteration
+    }
+    torch.save(checkpoint, out_path)
 
 
 def load_checkpoint(
-    src_path: str,
+    src_path: str | os.PathLike | BinaryIO | IO[bytes],
     model: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
 ) -> int:
-    # TODO(A6-加载): 与tests/test_serialization.py::test_checkpointing对齐
     # 正确恢复model与optimizer状态，并返回iteration。
-    raise NotImplementedError("TODO: 完成load_checkpoint")
+    checkpoint = torch.load(src_path)
+    model.load_state_dict(checkpoint['model_state'])
+    optimizer.load_state_dict(checkpoint['optimizer_state'])
+    return checkpoint['iteration']
 
 
 def evaluate(
@@ -217,54 +223,7 @@ def build_model(cfg: TrainConfig) -> TransformerLM:
 
 
 def train(cfg: TrainConfig) -> None:
-    # 1) 准备
-    set_seed(cfg.seed)
-    train_data = load_token_array(cfg.train_tokens_path)
-    valid_data = load_token_array(cfg.valid_tokens_path)
-
-    # 2) 模型与优化器
-    model = build_model(cfg)
-
-    # TODO(A5): 用你在adapters里实现的AdamW替换这里
-    # 要求与tests/test_optimizer.py::test_adamw行为一致。
-    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.max_learning_rate)
-
-    # 3) 训练主循环
-    start_iter = 0
-    for it in range(start_iter, cfg.total_iters):
-        # 3.1 动态学习率
-        lr = get_lr_cosine_schedule(
-            it=it,
-            max_learning_rate=cfg.max_learning_rate,
-            min_learning_rate=cfg.min_learning_rate,
-            warmup_iters=cfg.warmup_iters,
-            cosine_cycle_iters=cfg.cosine_cycle_iters,
-        )
-        for group in optimizer.param_groups:
-            group["lr"] = lr
-
-        # 3.2 取batch并前向
-        x, y = get_batch(train_data, cfg.batch_size, cfg.context_length, cfg.device)
-        logits = model(x)
-
-        # 3.3 计算loss
-        logits = logits.reshape(-1, logits.shape[-1])
-        y = y.reshape(-1)
-        loss = cross_entropy_loss(logits, y)
-
-        # 3.4 反向与更新
-        optimizer.zero_grad(set_to_none=True)
-        loss.backward()
-        clip_gradients(model.parameters(), cfg.max_grad_norm)
-        optimizer.step()
-
-        # 3.5 周期评估与保存
-        if (it + 1) % cfg.eval_interval == 0:
-            val_loss = evaluate(model, valid_data, cfg)
-            print(f"iter={it + 1} train_loss={loss.item():.4f} val_loss={val_loss:.4f} lr={lr:.6e}")
-            Path(cfg.checkpoint_path).parent.mkdir(parents=True, exist_ok=True)
-            save_checkpoint(model, optimizer, it + 1, cfg.checkpoint_path)
-
+    
 
 def parse_args() -> TrainConfig:
     parser = argparse.ArgumentParser(description="Training entry for CS336 assignment")
