@@ -11,7 +11,7 @@ from jaxtyping import Bool, Float, Int
 from torch import Tensor
 from cs336_basics.tokenizer import Tokenizer, train_bpe
 from cs336_basics.model import Linear, Embedding, RMSNorm, SiLU, SwiGLU, RoPE, RoPE_Qwen, softmax, scaled_dot_product_attention, MultiHeadSelfAttention, TransformerBlock, TransformerLM
-from cs336_basics.train import cross_entropy_loss, AdamW
+from cs336_basics.train import cross_entropy_loss, AdamW, get_lr_cosine_schedule, get_batch, clip_gradients
 def run_linear(
     d_in: int,
     d_out: int,
@@ -483,16 +483,7 @@ def run_get_batch(
         is the sampled input sequences, and the second tuple item is the corresponding
         language modeling labels. 需要batch个seq
     """
-    # 任务
-    # 1. 取样batch个起点
-    starts = torch.randint(0, dataset.shape[-1]-context_length, (batch_size,))
-    # 2. 取 context_length 个token，共B个
-    input_list = [torch.tensor(dataset[x: x+context_length]) for x in starts]
-    labels_list = [torch.tensor(dataset[x+1: x+context_length+1]) for x in starts]
-    # 3. 拼接成张量，移到device
-    input_ids = torch.stack(input_list, dim=0).to(device)
-    labels = torch.stack(labels_list, dim=0).to(device)
-    return input_ids, labels
+    return get_batch(dataset, batch_size, context_length, device)
     
 
 
@@ -527,10 +518,6 @@ def run_cross_entropy(
     Returns:
         Float[Tensor, ""]: The average cross-entropy loss across examples.
     """
-    # 任务拆解:
-    # 1) 对inputs做log_softmax
-    # 2) 按targets抽取每个样本正确类别的log-prob
-    # 3) 对负log-prob求均值
     return cross_entropy_loss(logits=inputs, targets=targets)
 
 
@@ -543,21 +530,7 @@ def run_gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm:
 
     The gradients of the parameters (parameter.grad) should be modified in-place.
     """
-    # 任务拆解:
-    # 1) 收集所有非None梯度
-    grads = []
-    for param in parameters:
-        if param.grad is None:
-            continue
-        grads.append(param.grad)
-    
-    # 2) 计算全局L2 norm
-    l2_norm = math.sqrt(sum((g.data**2).sum() for g in grads))
-    
-    # 3) 若norm > max_l2_norm，按同一比例缩放每个梯度
-    if l2_norm > max_l2_norm:
-        for g in grads:
-            g.data = g.data * max_l2_norm / (l2_norm + 1e-6)
+    clip_gradients(parameters, max_l2_norm)
 
 
 def get_adamw_cls() -> Any:
@@ -592,16 +565,7 @@ def run_get_lr_cosine_schedule(
     Returns:
         Learning rate at the given iteration under the specified schedule.
     """
-    # 任务拆解:
-    # 1) it < warmup_iters: 线性warmup到max_learning_rate
-    if it < warmup_iters:
-        lr = it / warmup_iters * max_learning_rate
-    # 2) warmup后到cosine_cycle_iters: cosine从max到min
-    elif it >= warmup_iters and it <= cosine_cycle_iters:
-        lr = min_learning_rate + 0.5*(1 + math.cos((it - warmup_iters)*math.pi / (cosine_cycle_iters - warmup_iters)))*(max_learning_rate - min_learning_rate)    
-    # 3) it > cosine_cycle_iters: 固定min_learning_rate
-    else: lr = min_learning_rate
-    return lr
+    get_lr_cosine_schedule(it, max_learning_rate, min_learning_rate, warmup_iters, cosine_cycle_iters)
 
 
 def run_save_checkpoint(

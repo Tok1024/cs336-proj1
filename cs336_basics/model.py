@@ -3,7 +3,7 @@ import torch.nn as nn
 import math
 from einops import einsum, rearrange, reduce
 
-# Transformer快速复习地图（建议按这个顺序看）:
+# Transformer快速复习地图:
 # 1) Embedding: token_id -> 向量
 # 2) TransformerBlock: Norm -> Attention/FFN -> 残差
 # 3) 堆叠多个Block后再做Norm + 输出到词表logits
@@ -131,6 +131,7 @@ class RoPE(nn.Module):
         
         # 进行旋转
         # 补全旋转公式，并按偶/奇位置写回输出
+        # 这里的idea是：把矩阵乘法转换成 element-wise
         y_even = x_even * cos - x_odd * sin
         y_odd = x_even * sin + x_odd * cos
         
@@ -165,7 +166,7 @@ class RoPE_Qwen(nn.Module):
     def forward(self, x: torch.Tensor, token_positions: torch.Tensor) -> torch.Tensor:
         cos = self.cos[token_positions].to(dtype=x.dtype, device=x.device)  # (S, d_k)
         sin = self.sin[token_positions].to(dtype=x.dtype, device=x.device)
-        return x * self.cos + rotate_half(x) * self.sin
+        return x * cos + rotate_half(x) * sin
     
     
     
@@ -215,6 +216,7 @@ class MultiHeadSelfAttention(nn.Module):
         v = v.reshape(b, s, self.num_heads, d // self.num_heads).transpose(1, 2)
         
         # 3. rope
+        # 必须先分头，再rope，因为rope是涉及维度的，不能把不同头的维度信息搞混
         if self.rope:
             token_positions = torch.arange(0, s, device=x.device)
             q = self.rope(q, token_positions)

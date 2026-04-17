@@ -3,22 +3,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 import math
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
 
 import numpy as np
 import torch
 
 from cs336_basics.model import TransformerLM
-
-
-# 对齐实验要求的任务地图（先过单测，再接入train主循环）:
-# A1 -> tests/test_data.py::test_get_batch
-# A2 -> tests/test_nn_utils.py::test_cross_entropy
-# A3 -> tests/test_nn_utils.py::test_gradient_clipping
-# A4 -> tests/test_optimizer.py::test_get_lr_cosine_schedule
-# A5 -> tests/test_optimizer.py::test_adamw
-# A6 -> tests/test_serialization.py::test_checkpointing
-# A7 -> 训练主循环集成（本文件train/evaluate）
 
 @dataclass
 class TrainConfig:
@@ -103,12 +93,21 @@ def load_token_array(path: str) -> np.ndarray:
 
 
 def get_batch(dataset: np.ndarray, batch_size: int, context_length: int, device: str) -> tuple[torch.Tensor, torch.Tensor]:
-    # TODO(A1): 与tests/test_data.py对齐
+    
     # 1) 起点均匀采样于[0, len(dataset)-context_length)
+    starts = torch.randint(0, len(dataset) - context_length, (batch_size,))
     # 2) x.shape == y.shape == (batch_size, context_length)
+    x = torch.stack(
+        [torch.tensor(dataset[i:i+context_length]) for i in starts],
+        dim = 0
+    )
     # 3) y始终是x右移一位（逐元素满足 y = x + 1 在该测试构造下）
+    y = torch.stack(
+        [torch.tensor(dataset[i+1:i+1+context_length]) for i in starts]
+    )
     # 4) 返回torch.long并放到device
-    raise NotImplementedError("TODO: 完成get_batch")
+    return x.to(torch.long).to(device), y.to(torch.long).to(device)
+    
 
 
 def cross_entropy_loss(logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
@@ -128,10 +127,22 @@ def cross_entropy_loss(logits: torch.Tensor, targets: torch.Tensor) -> torch.Ten
     nlh = -(correct_logits - log_sum).mean()
     return nlh
 
-def clip_gradients(parameters, max_l2_norm: float) -> None:
-    # TODO(A3): 与tests/test_nn_utils.py::test_gradient_clipping对齐
-    # 行为应与torch.nn.utils.clip_grad_norm_一致（忽略grad=None参数）。
-    raise NotImplementedError("TODO: 完成clip_gradients")
+def clip_gradients(parameters: Iterable[torch.nn.Parameter], max_l2_norm: float) -> None:
+    # 任务拆解:
+    # 1) 收集所有非None梯度
+    grads = []
+    for param in parameters:
+        if param.grad is None:
+            continue
+        grads.append(param.grad)
+
+    # 2) 计算全局L2 norm
+    l2_norm = math.sqrt(sum((g.data**2).sum() for g in grads))
+
+    # 3) 若norm > max_l2_norm，按同一比例缩放每个梯度
+    if l2_norm > max_l2_norm:
+        for g in grads:
+            g.data = g.data * max_l2_norm / (l2_norm + 1e-6)
 
 
 def get_lr_cosine_schedule(
@@ -141,11 +152,16 @@ def get_lr_cosine_schedule(
     warmup_iters: int,
     cosine_cycle_iters: int,
 ) -> float:
-    # TODO(A4): 与tests/test_optimizer.py::test_get_lr_cosine_schedule对齐
-    # 1) warmup段: 线性从0升到max_learning_rate
-    # 2) 余弦段: 从max衰减到min
-    # 3) 余弦结束后: 固定min_learning_rate
-    raise NotImplementedError("TODO: 完成get_lr_cosine_schedule")
+    # 任务拆解:
+    # 1) it < warmup_iters: 线性warmup到max_learning_rate
+    if it < warmup_iters:
+        lr = it / warmup_iters * max_learning_rate
+    # 2) warmup后到cosine_cycle_iters: cosine从max到min
+    elif it >= warmup_iters and it <= cosine_cycle_iters:
+        lr = min_learning_rate + 0.5*(1 + math.cos((it - warmup_iters)*math.pi / (cosine_cycle_iters - warmup_iters)))*(max_learning_rate - min_learning_rate)    
+    # 3) it > cosine_cycle_iters: 固定min_learning_rate
+    else: lr = min_learning_rate
+    return lr
 
 
 def save_checkpoint(
