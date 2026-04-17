@@ -481,14 +481,19 @@ def run_get_batch(
     Returns:
         Tuple of torch.LongTensors of shape (batch_size, context_length). The first tuple item
         is the sampled input sequences, and the second tuple item is the corresponding
-        language modeling labels.
+        language modeling labels. 需要batch个seq
     """
-    # 任务拆解:
-    # 1) 在[0, len(dataset)-context_length)中随机采样batch_size个起点
-    # 2) 构造x: dataset[start : start+context_length]
-    # 3) 构造y: dataset[start+1 : start+1+context_length]
-    # 4) 转成torch.long并移动到device
-    raise NotImplementedError("TODO: 完成run_get_batch")
+    # 任务
+    # 1. 取样batch个起点
+    starts = torch.randint(0, dataset.shape[-1]-context_length, (batch_size,))
+    # 2. 取 context_length 个token，共B个
+    input_list = [torch.tensor(dataset[x: x+context_length]) for x in starts]
+    labels_list = [torch.tensor(dataset[x+1: x+context_length+1]) for x in starts]
+    # 3. 拼接成张量，移到device
+    input_ids = torch.stack(input_list, dim=0).to(device)
+    labels = torch.stack(labels_list, dim=0).to(device)
+    return input_ids, labels
+    
 
 
 def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, " ..."]:
