@@ -233,7 +233,7 @@ def train(cfg: TrainConfig) -> None:
     train_data = load_token_array(cfg.train_tokens_path)
     eval_data = load_token_array(cfg.valid_tokens_path)
 
-    for it in tqdm(range(cfg.total_iters), desc="training"):
+    for it in range(cfg.total_iters):
         # 优化器每次循环初始化
         opt.zero_grad() # 首先记得给优化器梯度清零
         # 应用余弦调度
@@ -270,7 +270,7 @@ def parse_args() -> TrainConfig:
     parser.add_argument("--num_heads", type=int, default=8)
     parser.add_argument("--d_ff", type=int, default=1344)
     parser.add_argument("--rope_theta", type=float, default=10000.0)
-    parser.add_argument("--batch_size", type=int, default=4)
+    parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--total_iters", type=int, default=2000)
     parser.add_argument("--eval_interval", type=int, default=200)
     parser.add_argument("--checkpoint_interval", type=int, default=40)

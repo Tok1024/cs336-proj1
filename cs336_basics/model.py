@@ -9,7 +9,7 @@ from einops import einsum, rearrange, reduce
 # 1) Embedding: token_id -> 向量
 # 2) TransformerBlock: Norm -> Attention/FFN -> 残差
 # 3) 堆叠多个Block后再做Norm + 输出到词表logits
-
+END_TOKEN = 50256
 
 class Linear(nn.Module):
     def __init__(self, in_features, out_features, device=None, dtype=None):
@@ -285,8 +285,12 @@ class TransformerLM(nn.Module):
                 cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
                 idx = torch.where(cumulative_probs >= topp)[0][0]
                 probs = sorted_probs[..., :idx+1]
-            new_token = torch.multinomial(probs, num_samples=1)
-            torch.cat([x, new_token], dim=-1)
+            new_token = torch.multinomial(probs, num_samples=1).to(x.device)
+            x = torch.cat([x, new_token], dim=-1)
             total_tokens += 1
         output_ids = x
         return output_ids
+    
+    def load_checkpoint(self, src):
+        checkpoint = torch.load(src)
+        self.load_state_dict(checkpoint['model_state'])
