@@ -7,10 +7,10 @@ tokenizer = get_tokenizer_from_vocab_merges_path(
     special_tokens=["<|endoftext|>"],
 )
 
-train_text = "/sda1/szl/cs336/TinyStories_train_small.txt"
-val_text = "/sda1/szl/cs336/TinyStoriesV2-GPT4-valid.txt"
-train_tokens_path = "/sda1/szl/cs336/ts_train.npy"
-val_tokens_path = "/sda1/szl/cs336/ts_val.npy"
+train_text = "data/ts_train.txt"
+val_text = "data/ts_train.txt"
+train_tokens_path = "data/ts_train.npy"
+val_tokens_path = "data/ts_val.npy"
 
 
 def tokenize_file(input_path: str, output_path: str, log_every: int = 10000):
@@ -21,7 +21,7 @@ def tokenize_file(input_path: str, output_path: str, log_every: int = 10000):
     with open(input_path, "r", encoding="utf-8") as f:
         for line in f:
             ids = tokenizer.encode(line)
-            all_ids.extend(ids)
+            all_ids.extend(ids) # extend 表示给list加入一整个可迭代对象
 
             total_lines += 1
             total_tokens += len(ids)

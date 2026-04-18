@@ -99,18 +99,14 @@ def load_token_array(path: str) -> np.ndarray:
 def get_batch(dataset: np.ndarray, batch_size: int, context_length: int, device: str) -> tuple[torch.Tensor, torch.Tensor]:
     
     # 1) 起点均匀采样于[0, len(dataset)-context_length)
-    starts = torch.randint(0, len(dataset) - context_length, (batch_size,))
-    # 2) x.shape == y.shape == (batch_size, context_length)
-    x = torch.stack(
-        [torch.tensor(dataset[i:i+context_length]) for i in starts],
-        dim = 0
-    )
-    # 3) y始终是x右移一位（逐元素满足 y = x + 1 在该测试构造下）
-    y = torch.stack(
-        [torch.tensor(dataset[i+1:i+1+context_length]) for i in starts]
-    ) #(B, S)
-    # 4) 返回torch.long并放到device
-    return x.to(torch.long).to(device), y.to(torch.long).to(device)
+    starts = np.random.randint(0, len(dataset) - context_length, batch_size)
+    # 2) 一次性构造数据，避免逐个torch.tensor()创建中间张量
+    x_data = np.array([dataset[i:i+context_length] for i in starts], dtype=np.int64)
+    y_data = np.array([dataset[i+1:i+1+context_length] for i in starts], dtype=np.int64)
+    # 3) 一次转为torch张量并移到device
+    x = torch.from_numpy(x_data).to(device)
+    y = torch.from_numpy(y_data).to(device)
+    return x, y
 
 
 def cross_entropy_loss(logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
@@ -180,6 +176,9 @@ def save_checkpoint(
         'optimizer_state': optimizer.state_dict(),
         'iteration': iteration
     }
+    # 自动创建目录
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(checkpoint, out_path)
 
 
@@ -271,7 +270,7 @@ def parse_args() -> TrainConfig:
     parser.add_argument("--num_heads", type=int, default=8)
     parser.add_argument("--d_ff", type=int, default=1344)
     parser.add_argument("--rope_theta", type=float, default=10000.0)
-    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--total_iters", type=int, default=2000)
     parser.add_argument("--eval_interval", type=int, default=200)
     parser.add_argument("--checkpoint_interval", type=int, default=40)
